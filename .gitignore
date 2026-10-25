@@ -1,0 +1,21 @@
+# WHITELIST: this folder is also the dev workspace (test logs, saves, tester
+# logs, release zips, decompiled game code). Nothing is published unless it is
+# listed here, so none of that can be committed by accident.
+/*
+!/.gitignore
+!/.gitattributes
+!/LICENSE
+!/README.md
+!/MenaceCoop-README.md
+!/CHANGELOG.md
+!/ARCHITECTURE-NPLAYER.md
+!/UPDATE-RESILIENCE.md
+!/Directory.Build.props
+!/MenaceCoop/
+!/MenaceCoopMelon/
+!/Shared/
+!/.vscode/
+
+# Build output
+bin/
+obj/

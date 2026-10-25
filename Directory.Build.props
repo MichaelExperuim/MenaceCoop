@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    Stands in for Menace\Directory.Build.props when this repo is built on its own
+    (MSBuild stops at the NEAREST props file). Keep it valid XML.
+
+    NO PRIVATE PATHS IN RELEASE DLLS: the compiler embeds the full .pdb path in the
+    DLL; PathMap rewrites the project folder to "." so a shipped DLL never names
+    the builder's folder layout.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+  </PropertyGroup>
+
+</Project>

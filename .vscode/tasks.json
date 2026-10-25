@@ -1,0 +1,34 @@
+{
+  // Ctrl+Shift+B runs the default build. Uses the per-user .NET SDK
+  // (%LOCALAPPDATA%\Microsoft\dotnet); set DOTNET_ROOT to use another.
+  "version": "2.0.0",
+  "options": {
+    "env": { "DOTNET_ROOT": "${env:LOCALAPPDATA}\\Microsoft\\dotnet" }
+  },
+  "tasks": [
+    {
+      "label": "Build + deploy to test installs",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Microsoft\\dotnet\\dotnet.exe",
+      "args": ["build", "MenaceCoopMelon/MenaceCoopMelon.csproj", "-c", "Release", "--no-incremental"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Build only (no deploy)",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Microsoft\\dotnet\\dotnet.exe",
+      "args": ["build", "MenaceCoopMelon/MenaceCoopMelon.csproj", "-c", "Release", "-p:NoDeploy=true"],
+      "group": "build",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Package release zip",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "Build-MelonRelease.ps1"],
+      "group": "build",
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

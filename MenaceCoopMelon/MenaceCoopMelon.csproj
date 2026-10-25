@@ -1,0 +1,173 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MelonLoader build of MenaceCoop. THE ONLY BUILD.
+
+    The BepInEx project (..\MenaceCoop\MenaceCoop.csproj) was deleted 2026-09-25
+    on the user's call: MelonLoader is what the community runs, and new releases
+    ship for it alone. The BepInEx line stays available to players as the already
+    published v3.14.0 download, frozen. Its sources are preserved in
+    ..\baseline\src-v3.14.0-prePort\ and the shipped DLL in
+    ..\baseline\MenaceCoop-v3.14.0.dll, so that line is recoverable; but it is
+    no longer built here and MenaceCoop\*.cs is no longer kept BepInEx-clean.
+
+    NO DOUBLE HYPHEN IN THIS COMMENT. It is invalid XML and breaks the build
+    outright (MSB4025). CLAUDE.md records the same trap for
+    Menace\Directory.Build.props, where it breaks every project at once.
+
+    Plugin.cs and InstallHygiene.cs went with it: MelonEntry.cs and
+    InstallHygieneMelon.cs are now the only entry point and the only hygiene
+    check. MelonEntry.cs deliberately keeps the `Plugin.Logger` / `Plugin.X.Value`
+    static surface the other 29 files call; that shape is load-bearing, not a
+    leftover, and renaming it would touch every file.
+
+    MELON stays defined, and `#if MELON` blocks in the shared files stay, because
+    MelonLoader prefixes the game namespaces (Menace.Tactical ->
+    Il2CppMenace.Tactical, Steamworks -> Il2CppSteamworks) and a file-level
+    `using Menace = Il2CppMenace;` alias is what keeps fully-qualified
+    Menace.X.Y references compiling. They are now always true; that is harmless
+    and cheaper than editing 28 files to prove it.
+
+    Compiles against MelonLoader's own libraries (net6\) and the game assemblies
+    it generated (Il2CppAssemblies\). Both are per-install and are NOT shipped:
+    players get them from their own MelonLoader.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>MenaceCoop</AssemblyName>
+    <RootNamespace>MenaceCoop</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);MELON</DefineConstants>
+    <!-- Development tools (item spawner etc.) are compiled in by default and
+         compiled OUT by Build-MelonRelease.ps1 (-p:DevTools=false), which then
+         checks the finished DLL for them. -->
+    <DevTools Condition="'$(DevTools)' == ''">true</DevTools>
+    <DefineConstants Condition="'$(DevTools)' == 'true'">$(DefineConstants);COOP_DEVTOOLS</DefineConstants>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Games\steamapps\common\Menace</GameDir>
+    <SharedDir Condition="Exists('../../_Tools/Shared/PatchReport.cs')">../../_Tools/Shared</SharedDir>
+    <SharedDir Condition="'$(SharedDir)' == ''">../Shared</SharedDir>
+    <MelonDir>$(GameDir)\MelonLoader</MelonDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <Compile Include="..\MenaceCoop\*.cs" />
+    <Compile Include="$(SharedDir)/PatchReport.cs" />
+  </ItemGroup>
+
+  <!--
+    THE TACTICAL BRAIN, COMPILED FROM MenaceAutoCombat.
+
+    MenaceAutoCombat was extracted from co-op's own auto-combat and then
+    developed a long way past it: target scoring, objective focus, formations,
+    action settling and a turn watchdog, none of which co-op has. Rather than
+    copy that work back (two copies drift, which is the whole reason the loader
+    port shares one tree), the brain is compiled straight out of its own tree.
+
+    It was extracted, not forked, so it still calls co-op's services by their
+    real names: Ownership, CoopNet, CoopRunner, Replication, Thinking, Plugin.
+    In MenaceAutoCombat those are supplied by SinglePlayer.cs as single-player
+    stand-ins. HERE THAT FILE IS DELIBERATELY ABSENT, so the same calls bind to
+    co-op's genuine ownership rules instead, and the brain only ever commands
+    units this player actually owns.
+
+    Only the 8 files the brain actually needs are taken. Excluded on purpose:
+      SinglePlayer.cs   the stand-ins described above
+      Plugin.cs         a BepInEx entry point
+      AutoCombatRunner  co-op has CoopRunner
+      AutoCombatPanel / PanelDrag / AutoConfirm   co-op has its own UI
+      FastForward / FastAnimation   co-op FORCES 1x speed while connected
+                                    (LockGameSpeed); speeding up changes event
+                                    timing and is a known desync source.
+    None of the 8 contains a [HarmonyPatch], so nothing is patched twice.
+  -->
+  <!-- NO BUILT-IN AUTO COMBAT (user, 2026-09-28). Co-op used to compile the
+       MenaceAutoCombat brain files in here as a fallback. It no longer ships a
+       brain: auto combat needs the MenaceAutoCombat mod, reached at runtime
+       through AutoCombatBridge (CoopBridge). Without that mod the co-op panel's
+       auto combat control is greyed out and says so. -->
+
+
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonDir)\net6\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(MelonDir)\net6\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(MelonDir)\net6\Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Common">
+      <HintPath>$(MelonDir)\net6\Il2CppInterop.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Every game/Unity assembly MelonLoader generated, as a glob. Naming them
+       one by one is what breaks whenever the game adds a dependency. -->
+  <ItemGroup>
+    <GameAssembly Include="$(MelonDir)\Il2CppAssemblies\*.dll" />
+    <Reference Include="@(GameAssembly)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- DEV CLONES ONLY.
+       MenaceM1/MenaceM2 are the clean MelonLoader rig (_Tools\New-MelonClone.ps1).
+       The MelonLoader install at $(GameDir) is the USER'S PERSONAL setup and is
+       never deployed into: it already carries MenaceAutoCombat, which contains
+       this same auto-combat brain, and two copies drive every squad twice per
+       frame. Installing there is a deliberate manual step. -->
+  <!-- -p:NoDeploy=true compiles without touching the rigs (a run is in progress). -->
+  <Target Name="DeployToMelonClones" AfterTargets="Build" Condition="'$(NoDeploy)' != 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM1\Mods"
+          Condition="Exists('C:\Games\steamapps\common\MenaceM1\Mods')"
+          ContinueOnError="WarnAndContinue" Retries="1">
+      <Output TaskParameter="CopiedFiles" ItemName="_DeployedM1" />
+    </Copy>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM2\Mods"
+          Condition="Exists('C:\Games\steamapps\common\MenaceM2\Mods')"
+          ContinueOnError="WarnAndContinue" Retries="1">
+      <Output TaskParameter="CopiedFiles" ItemName="_DeployedM2" />
+    </Copy>
+    <!-- MenaceM3: the third player of the v5 rig (user 2026-10-02: tests run at 3). -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM3\Mods"
+          Condition="Exists('C:\Games\steamapps\common\MenaceM3\Mods')"
+          ContinueOnError="WarnAndContinue" Retries="1" />
+    <!-- MenaceM4: the fourth player (user 2026-10-02: the machine runs 4 after all). -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM4\Mods"
+          Condition="Exists('C:\Games\steamapps\common\MenaceM4\Mods')"
+          ContinueOnError="WarnAndContinue" Retries="1" />
+
+    <!-- Menace2 is the install the USER tests with (their call, 2026-09-25). It
+         was the BepInEx guest until it was converted to MelonLoader that day, so
+         it takes the build like any other rig. Still NOT the main Menace install:
+         that one is the user's personal setup and carries MenaceAutoCombat, which
+         must never sit beside co-op. -->
+    <!-- 2026-10-02: OPT-IN while v5 is in development (dotnet build -p:DeployMenace2=true).
+         Menace + Menace2 are the user's play pair on the v4.3.0 release; a 5.0.0-dev
+         build landing on only one of them trips the version check every session. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\Menace2\Mods"
+          Condition="Exists('C:\Games\steamapps\common\Menace2\Mods') And '$(DeployMenace2)' == 'true'"
+          ContinueOnError="WarnAndContinue" Retries="1">
+      <Output TaskParameter="CopiedFiles" ItemName="_DeployedM2b" />
+    </Copy>
+
+    <!-- Say so when it did not happen. A silent non-deploy once had four rounds
+         of fixes reported as live when the file had never been copied. -->
+    <Warning Condition="'@(_DeployedM1)' == ''"
+             Text="DEPLOY DID NOT HAPPEN. MenaceCoop.dll in MenaceM1 is NOT this build (game running and holding the file?). Close it and rebuild." />
+    <Message Condition="'@(_DeployedM1)' != ''" Importance="high"
+             Text="DEPLOYED: MenaceCoop.dll to MenaceM1 and MenaceM2 (Mods\)" />
+  </Target>
+
+</Project>
