@@ -41,5 +41,10 @@ simulator, Steam self-tests). The release build turns them off
 (`-p:DevTools=false`) and `Build-MelonRelease.ps1` proves they are absent.
 
 Game namespaces are prefixed by MelonLoader (`Menace.Tactical` becomes
-`Il2CppMenace.Tactical`); every file opens with an `#if MELON` block of usings for
-that, and `using Menace = Il2CppMenace;` keeps `Menace.X.Y` references compiling.
+`Il2CppMenace.Tactical`), so files import the `Il2Cpp...` namespaces, and
+`using Menace = Il2CppMenace;` keeps `Menace.X.Y` references compiling.
+
+**History:** up to v3.14.0 the mod was a BepInEx plugin built from the same sources.
+That build was removed when the mod moved to MelonLoader (v4.0.0); `MenaceCoop/`
+is the source folder and `MenaceCoopMelon/` the only project. The frozen BepInEx
+release remains on Nexus as v3.14.0.

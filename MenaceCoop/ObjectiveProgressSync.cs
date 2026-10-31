@@ -1,13 +1,8 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
-#if MELON
 using Il2CppMenace.Tactical;
 using Il2CppMenace.Tactical.Objectives;
-#else
-using Menace.Tactical;
-using Menace.Tactical.Objectives;
-#endif
 
 namespace MenaceCoop;
 

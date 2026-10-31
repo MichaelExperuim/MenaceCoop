@@ -1,18 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using HarmonyLib;
-#if MELON
 using Il2CppMenace.States;
 using Il2CppMenace.Strategy;
 using Il2CppMenace.UI;
 using Il2CppMenace.UI.Strategy;
 using Menace = Il2CppMenace;
-#else
-using Menace.States;
-using Menace.Strategy;
-using Menace.UI;
-using Menace.UI.Strategy;
-#endif
 
 namespace MenaceCoop;
 

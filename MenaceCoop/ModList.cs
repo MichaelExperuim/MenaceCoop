@@ -57,7 +57,6 @@ internal static class ModList
 
     private static void CollectMelons(List<string> into)
     {
-#if MELON
         foreach (var melon in MelonLoader.MelonBase.RegisteredMelons)
         {
             string name = melon?.Info?.Name;
@@ -69,13 +68,10 @@ internal static class ModList
             try { file = melon.MelonAssembly?.Location; } catch { }
             into.Add($"{name}@{melon.Info.Version ?? "?"}#{FileFingerprint(file)}");
         }
-#endif
     }
 
-    // Menace_Data sits beside the exe, so its parent is the game root under
-    // either loader -- BepInEx\plugins and MelonLoader's Mods sit at different
-    // depths, and deriving this from our own DLL path would need a per-loader
-    // answer.
+    // Menace_Data sits beside the exe, so its parent is the game root -- a
+    // fixed anchor, independent of where the mod DLL itself was loaded from.
     private static string ModsDir()
     {
         try

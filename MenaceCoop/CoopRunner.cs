@@ -1,19 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using Il2CppInterop.Runtime;
-#if MELON
 using Il2CppMenace.Strategy;
 using Il2CppMenace.UI;
 using Il2CppMenace.UI.Menu;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
 using Steamworks = Il2CppSteamworks;
 using CfgBool = MelonLoader.MelonPreferences_Entry<bool>;
-#else
-using Menace.Strategy;
-using Menace.UI;
-using Menace.UI.Menu;
-using CfgBool = BepInEx.Configuration.ConfigEntry<bool>;
-#endif
 using UnityEngine;
 using UnityEngine.UIElements;
 

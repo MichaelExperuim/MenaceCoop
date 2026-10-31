@@ -1,17 +1,10 @@
 using System;
 using System.Text;
-#if MELON
 using Il2CppMenace.States;
 using Il2CppMenace.Tactical;
 using Il2CppMenace.Tactical.Skills;
 using Il2CppMenace.UI;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.States;
-using Menace.Tactical;
-using Menace.Tactical.Skills;
-using Menace.UI;
-#endif
 
 namespace MenaceCoop;
 
@@ -58,19 +51,11 @@ internal static class SelfTest
             _devRig = 0;
             try
             {
-                // The dev checkout sits beside the game install. How far up the
-                // game root is depends on the loader: BepInEx loads us from
-                // BepInEx\plugins (two folders down), MelonLoader from Mods (one).
-#if MELON
+                // The rig marker (_CoopModDev\) sits in the game root, one folder
+                // above Mods\, where MelonLoader loads us from.
                 string root = System.IO.Path.GetDirectoryName(
                     System.IO.Path.GetDirectoryName(
                         typeof(SelfTest).Assembly.Location));        // ...\Mods -> game root
-#else
-                string root = System.IO.Path.GetDirectoryName(
-                    System.IO.Path.GetDirectoryName(
-                        System.IO.Path.GetDirectoryName(
-                            typeof(SelfTest).Assembly.Location)));   // ...\BepInEx\plugins -> game root
-#endif
                 if (root != null && System.IO.Directory.Exists(System.IO.Path.Combine(root, "_CoopModDev")))
                     _devRig = 1;
             }

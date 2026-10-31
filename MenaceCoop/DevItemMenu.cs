@@ -1,15 +1,9 @@
 #if COOP_DEVTOOLS
 using System;
 using System.Collections.Generic;
-#if MELON
 using Il2CppMenace.Items;
 using Il2CppMenace.States;
 using Il2CppMenace.Tactical;
-#else
-using Menace.Items;
-using Menace.States;
-using Menace.Tactical;
-#endif
 using UnityEngine;
 using UnityEngine.UIElements;
 

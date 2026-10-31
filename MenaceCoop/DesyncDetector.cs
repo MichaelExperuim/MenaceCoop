@@ -1,16 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-#if MELON
 using Il2CppMenace.Tactical;
 using Il2CppMenace.States;
 using Il2CppMenace.Strategy;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
 using Tactical = Il2CppTactical;   // the ROOT Tactical namespace (MovementSystem), not Menace.Tactical
-#else
-using Menace.Tactical;
-using Menace.States;
-using Menace.Strategy;
-#endif
 
 namespace MenaceCoop;
 

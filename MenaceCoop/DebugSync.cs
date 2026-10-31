@@ -1,14 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
-#if MELON
 using Il2CppMenace.Tactical;
 using Il2CppMenace.States;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.Tactical;
-using Menace.States;
-#endif
 
 namespace MenaceCoop;
 

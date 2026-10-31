@@ -2,16 +2,10 @@
 using System.Collections.Generic;
 using System.Text;
 using HarmonyLib;
-#if MELON
 using Il2CppMenace.Strategy;
 using Il2CppMenace.UI;
 using Il2CppMenace.UI.Strategy;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.Strategy;
-using Menace.UI;
-using Menace.UI.Strategy;
-#endif
 using UnityEngine.UIElements;
 
 namespace MenaceCoop;

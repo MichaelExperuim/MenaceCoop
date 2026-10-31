@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Injection;
-#if MELON
 using Steamworks = Il2CppSteamworks;
-#endif
 
 namespace MenaceCoop;
 

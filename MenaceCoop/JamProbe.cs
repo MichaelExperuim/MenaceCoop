@@ -1,15 +1,8 @@
 using HarmonyLib;
-#if MELON
 using Il2CppMenace.Tactical;
 using Il2CppMenace.Tactical.Skills;
 using Il2CppMenace.Tactical.Skills.Effects;
 using Il2CppMenace.Tactical.Barks;
-#else
-using Menace.Tactical;
-using Menace.Tactical.Skills;
-using Menace.Tactical.Skills.Effects;
-using Menace.Tactical.Barks;
-#endif
 
 namespace MenaceCoop;
 

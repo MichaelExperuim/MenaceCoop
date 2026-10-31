@@ -3,11 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using UnityEngine;
-#if MELON
 using Il2CppMenace.Strategy;
-#else
-using Menace.Strategy;
-#endif
 
 namespace MenaceCoop;
 

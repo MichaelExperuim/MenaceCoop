@@ -1,13 +1,8 @@
 using System;
 using HarmonyLib;
-#if MELON
 using Il2CppMenace.OffmapAbilities;
 using Il2CppMenace.States;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.OffmapAbilities;
-using Menace.States;
-#endif
 
 namespace MenaceCoop;
 

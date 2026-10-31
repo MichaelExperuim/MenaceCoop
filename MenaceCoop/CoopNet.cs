@@ -6,12 +6,10 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-#if MELON
 // MelonLoader prefixes the Steamworks.NET assembly too
 // (Il2Cppcom.rlabrecque.steamworks.net.dll), so every Steamworks.X reference
 // below keeps compiling through this alias.
 using Steamworks = Il2CppSteamworks;
-#endif
 
 namespace MenaceCoop;
 

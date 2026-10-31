@@ -1,7 +1,6 @@
 ﻿using System;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
-#if MELON
 using Il2CppMenace.Items;
 using Il2CppMenace.States;
 using Il2CppMenace.Strategy;
@@ -9,14 +8,6 @@ using Il2CppMenace.Tactical;
 using Il2CppMenace.UI;
 using Il2CppMenace.UI.Strategy;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.Items;
-using Menace.States;
-using Menace.Strategy;
-using Menace.Tactical;
-using Menace.UI;
-using Menace.UI.Strategy;
-#endif
 
 namespace MenaceCoop;
 

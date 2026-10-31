@@ -1,10 +1,6 @@
 using System;
 using System.Collections.Generic;
-#if MELON
 using Il2CppMenace.Tactical;
-#else
-using Menace.Tactical;
-#endif
 
 namespace MenaceCoop;
 

@@ -1,14 +1,8 @@
 ﻿using System;
-#if MELON
 using Il2CppMenace.Tactical;
 using Il2CppMenace.Tactical.AI;
 using Il2CppMenace.Tactical.Skills;
 using Menace = Il2CppMenace;   // MelonLoader prefixes game namespaces; keeps Menace.X.Y references compiling
-#else
-using Menace.Tactical;
-using Menace.Tactical.AI;
-using Menace.Tactical.Skills;
-#endif
 
 namespace MenaceCoop;
 
