@@ -84,6 +84,8 @@ public class Plugin : MelonMod
     internal static MelonPreferences_Entry<bool> ShowOwnerLabels;
     internal static MelonPreferences_Entry<bool> SelfTestLoopMissions;
     internal static MelonPreferences_Entry<bool> SteamLobbyProbe;
+    // Dev builds only (read by NetLag): simulated network delay on received messages.
+    internal static MelonPreferences_Entry<int> SimLatencyMs, SimJitterMs;
     internal static MelonPreferences_Entry<bool> SteamSelfTest;
     internal static MelonPreferences_Entry<bool> SyncedDebug;
     internal static MelonPreferences_Entry<string> SyncedDebugScenario;
@@ -240,6 +242,10 @@ public class Plugin : MelonMod
         // Steam dev switches: not created in release builds (the code that reads
         // them is compiled out there too), so they never show in a player's cfg.
 #if COOP_DEVTOOLS
+        SimLatencyMs = dev.CreateEntry("SimLatencyMs", 0, "SimLatencyMs",
+            "Developer only. Hold every message received from the other players this many milliseconds before acting on it, to test a slow connection on one machine. Both sides delay, so a round trip costs about twice this. 0 = off.");
+        SimJitterMs = dev.CreateEntry("SimJitterMs", 0, "SimJitterMs",
+            "Developer only. Add up to this many milliseconds of random extra delay per message on top of SimLatencyMs (arrival order is kept, as on a real connection). 0 = off.");
         SteamLobbyProbe = dev.CreateEntry("SteamLobbyProbe", false, "SteamLobbyProbe",
             "Developer only. At the title screen, open a Steam lobby by itself, log what Steam answers (lobby id, members, callbacks), then close it again.");
         SteamSelfTest = dev.CreateEntry("SteamSelfTest", false, "SteamSelfTest",
@@ -293,7 +299,7 @@ public class Plugin : MelonMod
             typeof(SuppressionSyncPatches),
             typeof(StructureSyncPatches),
             typeof(ObjectiveProgressPatches),
-            typeof(BugProbePatches), typeof(BleedOutProbe),
+            typeof(BugProbePatches), typeof(BleedOutProbe), typeof(PerkAttackProbe),
             typeof(FleeSyncPatches),
             typeof(CoverJournalPatches),
             typeof(SaveLoadPatches),

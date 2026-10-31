@@ -1,4 +1,4 @@
-# MenaceCoop
+﻿# MenaceCoop
 
 Co-op for 2 to 4 players in MENACE (Overhype Studios), as a MelonLoader mod. One player hosts, the others join; the
 squads are split between the players and you fight each mission together.
@@ -14,9 +14,11 @@ squads are split between the players and you fight each mission together.
 The host owns the campaign and runs the enemy AI. In battle, each player's actions
 are sent to the others as orders (over direct IP or Steam P2P) and replayed by their
 games; the host's game decides anything random or contested, and periodic state
-snapshots repair any drift. See [ARCHITECTURE-NPLAYER.md](ARCHITECTURE-NPLAYER.md)
-for the 2-4 player design and [UPDATE-RESILIENCE.md](UPDATE-RESILIENCE.md) for how
-game updates are handled.
+snapshots repair any drift.
+
+**Developers:** start at [DeveloperDocs/README.md](DeveloperDocs/README.md) -- architecture,
+design rules, engine facts, a map of the code, and how to set up the multi-copy test
+rigs on one PC.
 
 ## Building
 

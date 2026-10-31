@@ -41,7 +41,7 @@ public class CoopRunner : MonoBehaviour
     private static Button _joinBtn;
     private static Button _discBtn;
     private static Button _letMeClickBtn;   // guest, strategy layer: StrategyMirror.ToggleFreeClicks
-    private static Button _sendSaveBtn, _resumeBattleBtn;
+    private static Button _sendSaveBtn, _resumeBattleBtn, _stopWaitingBtn;
     private static VisualElement _steamRow;
     private static VisualElement _cursorSection;
     private static bool _cursorSectionShown;
@@ -86,7 +86,11 @@ public class CoopRunner : MonoBehaviour
         CoopNet.PumpSteam();
         SteamLobby.Tick();
 
+#if COOP_DEVTOOLS
+        while (NetLag.TryNext(out var msg))   // dev: optional simulated slow link
+#else
         while (CoopNet.Incoming.TryDequeue(out var msg))
+#endif
         {
             if (!Peers.Accept(msg)) continue;
             if (AiPacing.Intercept(msg)) continue;   // played back in order by AiPacing.Tick
@@ -726,6 +730,10 @@ public class CoopRunner : MonoBehaviour
             _discBtn = MakeButton("Disconnect", CoopNet.Stop);
             _letMeClickBtn = MakeButton(LetMeClickText(), StrategyMirror.ToggleFreeClicks);
             _letMeClickBtn.style.display = new StyleEnum<DisplayStyle>(DisplayStyle.None);
+            // HOST: the waits for players to load have no clock (user, 2026-10-30)
+            // -- a person ends one that will never finish. Shown only while waiting.
+            _stopWaitingBtn = MakeButton("STOP WAITING FOR PLAYERS", SessionSync.StopWaiting);
+            _stopWaitingBtn.style.display = new StyleEnum<DisplayStyle>(DisplayStyle.None);
             _sendSaveBtn = MakeButton("Sync partner to my game", SessionSync.StartSync);
             // BattleSave: resume the battle saved with SAVE BATTLE STATE, from the
             // strategy layer or from inside a battle. Host (or solo) only.
@@ -1720,6 +1728,11 @@ public class CoopRunner : MonoBehaviour
             string t = LetMeClickText();
             if (offer && _letMeClickBtn.text != t) _letMeClickBtn.text = t;
         }
+        if (_stopWaitingBtn != null && Time.frameCount % 15 == 0)
+        {
+            bool offer = SessionSync.Waiting;
+            _stopWaitingBtn.style.display = new StyleEnum<DisplayStyle>(offer ? DisplayStyle.Flex : DisplayStyle.None);
+        }
         if (_resumeBattleBtn != null && Time.frameCount % 30 == 0)
         {
             bool offer = CoopNet.Mode != CoopMode.Guest && !BattleSave.Restoring && BattleSave.Exists;
@@ -1788,6 +1801,7 @@ public class CoopRunner : MonoBehaviour
             if (CoopNet.Mode == CoopMode.Host && CoopNet.Transport == TransportKind.Steam)
                 _steamRow.Add(_steamInviteBtn);
             _buttonRow.Add(_letMeClickBtn);
+            _buttonRow.Add(_stopWaitingBtn);
             // "Sync partner to my game" now lives in DEBUG SETTINGS: it reloads
             // the partner's entire session from a save, which is a recovery
             // action, not something to sit one stray click away during play.

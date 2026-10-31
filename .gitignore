@@ -8,8 +8,19 @@
 !/README.md
 !/MenaceCoop-README.md
 !/CHANGELOG.md
-!/ARCHITECTURE-NPLAYER.md
-!/UPDATE-RESILIENCE.md
+!/DeveloperDocs/
+!/tools/
+!/Launch-MelonCoopTest.ps1
+!/Build-MelonRelease.ps1
+# The harness's starting campaigns (only the three it uses).
+!/testsave/
+/testsave/*
+!/testsave/building_test.save
+!/testsave/building_test.jpg
+!/testsave/pirate_test.save
+!/testsave/pirate_test.jpg
+!/testsave/alien_test.save
+!/testsave/alien_test.jpg
 !/Directory.Build.props
 !/MenaceCoop/
 !/MenaceCoopMelon/

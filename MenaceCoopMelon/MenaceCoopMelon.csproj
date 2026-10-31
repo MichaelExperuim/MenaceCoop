@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     MelonLoader build of MenaceCoop. THE ONLY BUILD.
@@ -49,6 +49,8 @@
     <DevTools Condition="'$(DevTools)' == ''">true</DevTools>
     <DefineConstants Condition="'$(DevTools)' == 'true'">$(DefineConstants);COOP_DEVTOOLS</DefineConstants>
     <GameDir Condition="'$(GameDir)' == ''">C:\Games\steamapps\common\Menace</GameDir>
+    <!-- Test rigs MenaceM1..M4 live beside the game by default (tools\RigPaths.ps1, DeveloperDocs\06-TESTING.md). -->
+    <RigRoot Condition="'$(RigRoot)' == ''">$([System.IO.Path]::GetDirectoryName($(GameDir)))</RigRoot>
     <SharedDir Condition="Exists('../../_Tools/Shared/PatchReport.cs')">../../_Tools/Shared</SharedDir>
     <SharedDir Condition="'$(SharedDir)' == ''">../Shared</SharedDir>
     <MelonDir>$(GameDir)\MelonLoader</MelonDir>
@@ -129,23 +131,23 @@
        frame. Installing there is a deliberate manual step. -->
   <!-- -p:NoDeploy=true compiles without touching the rigs (a run is in progress). -->
   <Target Name="DeployToMelonClones" AfterTargets="Build" Condition="'$(NoDeploy)' != 'true'">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM1\Mods"
-          Condition="Exists('C:\Games\steamapps\common\MenaceM1\Mods')"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RigRoot)\MenaceM1\Mods"
+          Condition="Exists('$(RigRoot)\MenaceM1\Mods')"
           ContinueOnError="WarnAndContinue" Retries="1">
       <Output TaskParameter="CopiedFiles" ItemName="_DeployedM1" />
     </Copy>
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM2\Mods"
-          Condition="Exists('C:\Games\steamapps\common\MenaceM2\Mods')"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RigRoot)\MenaceM2\Mods"
+          Condition="Exists('$(RigRoot)\MenaceM2\Mods')"
           ContinueOnError="WarnAndContinue" Retries="1">
       <Output TaskParameter="CopiedFiles" ItemName="_DeployedM2" />
     </Copy>
     <!-- MenaceM3: the third player of the v5 rig (user 2026-10-02: tests run at 3). -->
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM3\Mods"
-          Condition="Exists('C:\Games\steamapps\common\MenaceM3\Mods')"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RigRoot)\MenaceM3\Mods"
+          Condition="Exists('$(RigRoot)\MenaceM3\Mods')"
           ContinueOnError="WarnAndContinue" Retries="1" />
     <!-- MenaceM4: the fourth player (user 2026-10-02: the machine runs 4 after all). -->
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\MenaceM4\Mods"
-          Condition="Exists('C:\Games\steamapps\common\MenaceM4\Mods')"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RigRoot)\MenaceM4\Mods"
+          Condition="Exists('$(RigRoot)\MenaceM4\Mods')"
           ContinueOnError="WarnAndContinue" Retries="1" />
 
     <!-- Menace2 is the install the USER tests with (their call, 2026-09-25). It
@@ -156,8 +158,8 @@
     <!-- 2026-10-02: OPT-IN while v5 is in development (dotnet build -p:DeployMenace2=true).
          Menace + Menace2 are the user's play pair on the v4.3.0 release; a 5.0.0-dev
          build landing on only one of them trips the version check every session. -->
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="C:\Games\steamapps\common\Menace2\Mods"
-          Condition="Exists('C:\Games\steamapps\common\Menace2\Mods') And '$(DeployMenace2)' == 'true'"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RigRoot)\Menace2\Mods"
+          Condition="Exists('$(RigRoot)\Menace2\Mods') And '$(DeployMenace2)' == 'true'"
           ContinueOnError="WarnAndContinue" Retries="1">
       <Output TaskParameter="CopiedFiles" ItemName="_DeployedM2b" />
     </Copy>

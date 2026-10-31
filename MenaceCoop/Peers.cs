@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace MenaceCoop;
 
-// WHO IS IN THE SESSION -- v5 Phase 0 (V5-PLAN.md, ARCHITECTURE-NPLAYER.md §4).
+// WHO IS IN THE SESSION -- v5 Phase 0 (V5-PLAN.md, DeveloperDocs/10-N-PLAYER-DESIGN.md §4).
 //
 // Every player has a SEAT: the host is seat 0, clients are 1..MaxSeats-1. Seats,
 // not "host"/"guest", are what ownership, messages and (later) colours key on, so

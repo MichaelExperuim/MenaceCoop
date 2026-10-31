@@ -174,7 +174,7 @@ internal static class TurnControl
     }
 
     // THE TURN ORDER: seat after seat, host first. Exists only on the host --
-    // clients never compute a next holder, they are told (ARCHITECTURE-NPLAYER
+    // clients never compute a next holder, they are told (DeveloperDocs/10-N-PLAYER-DESIGN
     // §4 Phase 0 item 3), so they cannot disagree about it.
     private static System.Collections.Generic.List<int> Rotation() => Peers.SessionSeats();
 

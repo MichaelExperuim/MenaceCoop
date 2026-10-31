@@ -1335,6 +1335,28 @@ internal static class DebugSync
             Plugin.Logger.LogInfo($"[DEBUG] scenario grenades: granted to '{DesyncDetector.TemplateNameOf(mine)}' (host) and '{DesyncDetector.TemplateNameOf(theirs)}' (guest)");
             return;
         }
+        // "perks" (BUGS.md #90): at round 2 every player infantry squad, the
+        // host's and the guests', gets the counterattack and Overtime perks, so
+        // enemy fire triggers perk attacks for PerkAttackProbe to watch.
+        if (Has("perks"))
+        {
+            if (_hostStep != 0) return;
+            try { if (tm.GetRound() < 2) return; } catch { return; }
+            _hostStep = 1;
+            int n = 0;
+            foreach (var x in DesyncDetector.AllActors(tm))
+            {
+                if (x == null || x.IsDying() || !Ownership.IsKnownPlayerUnit(x)) continue;
+                if (DesyncDetector.TemplateNameOf(x).Contains("vehicle")) continue;
+                var gp = x.GetLastTile()?.GetTilePos();
+                if (gp == null) continue;
+                foreach (var perk in new[] { "perk.counter_strike", "perk.overtime_murdock" })
+                    Request($"grantskill|{gp.Value.x}|{gp.Value.y}|{perk}");
+                n++;
+            }
+            Plugin.Logger.LogInfo($"[DEBUG] scenario perks: counter_strike + overtime_murdock requested for {n} player squad(s)");
+            return;
+        }
         if (_hostStep != 0) return;
         // "reload": at round 3, press FIX DESYNC -- the guest is rebuilt from the
         // battle-start save and has to roll two rounds to catch up (BUGS.md #2).

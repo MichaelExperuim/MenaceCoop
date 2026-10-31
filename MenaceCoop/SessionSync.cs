@@ -30,8 +30,10 @@ internal static class SessionSync
 
     private static string _pendingPath;
     private static float _pendingSince;
-    private static long _lastSize = -1;
     private static float _lastCheck;
+    // A rewrite of coop_sync.save must postdate the request: the previous
+    // sync's file is complete and parses too.
+    private static DateTime _pendingWriteMin;
 
     // Incoming load requests are queued newest-wins and executed only when no
     // other load can still be in flight -- two overlapping ExecLoads abort the
@@ -61,9 +63,27 @@ internal static class SessionSync
     private static int _hostMissionSeed;
     private static string _hostDeploy = "";
     private static int _queuedMissionIdx = -1;
-    private static float _queuedMissionAt = -999f;
-    private const float QueuedMissionDeadline = 30f;
     private static bool _missionLookupLogged;
+
+    // WHICH SAVE THE QUEUED MISSION IS GENERATED FROM, AND WHETHER IT HAS LOADED.
+    //
+    // The launch used to wait "until loads had settled": a cooldown after every
+    // load, plus a 30 s deadline that launched anyway. Over a real connection a
+    // slow transfer let that deadline fire before the host's battle save had
+    // loaded, so the guest built the mission from the wrong campaign state --
+    // a crash at entry, or a battle with no bottom bar (Nexus, 2026-10-30).
+    // The host now names the save in "startmission"; the launch waits for THAT
+    // load to complete, however long it takes. Empty name = an older host:
+    // fall back to "no load queued or in progress".
+    private static string _queuedMissionSave = "";
+    private static bool _missionSaveLoaded;
+    // The save the load in progress came from (set when ExecLoad runs).
+    private static string _loadingSave;
+    // The last save we refused or could not parse: a mission built on it can
+    // never start, so its entry fails at once instead of waiting forever.
+    private static string _failedSave;
+    // Host-side HostRelaunch load: no "synced" ack, nobody is waiting on one.
+    private static bool _relaunchLoad;
 
     private const string PrepScene = "MissionPreparation";
     private static bool _prepSceneRequested;
@@ -194,6 +214,15 @@ internal static class SessionSync
         if (p != IntPtr.Zero && p != _preLoadStrategyPtr && processed)
         {
             _awaitingLoadDone = false;
+            if (_relaunchLoad)
+            {
+                _relaunchLoad = false;
+                Plugin.Logger.LogInfo("[SESSION] Relaunch save loaded");
+                return;
+            }
+            if (!string.IsNullOrEmpty(_loadingSave) && _loadingSave == _queuedMissionSave)
+                _missionSaveLoaded = true;
+            _loadingSave = null;
             CoopNet.Send(new CoopMsg { T = "synced" });
             CoopNet.Status = "Synced with host";
             Plugin.Logger.LogInfo("[SESSION] Sync load complete; acknowledged to host");
@@ -202,9 +231,18 @@ internal static class SessionSync
             if (_queuedMissionIdx < 0)
                 CoopRunner.SetSyncBlocker(false);
         }
+        // LOCAL watchdog only: our own game never finished its load. It reports a
+        // failure -- it never counts the load as done, so a mission can no longer
+        // launch on top of a half-loaded campaign.
         else if (Time.realtimeSinceStartup - _awaitingSince > 120f)
         {
             _awaitingLoadDone = false;
+            Plugin.Logger.LogError($"[SESSION] Our game never finished loading '{_loadingSave}' (120 s) -- treating the load as FAILED");
+            if (_relaunchLoad) { _relaunchLoad = false; _queuedMissionIdx = -1; CoopRunner.SetSyncBlocker(false); return; }
+            CoopNet.Send(new CoopMsg { T = "syncfail", Data = "the save did not finish loading" });
+            if (_loadingSave != null && _loadingSave == _queuedMissionSave)
+                FailGuestEntry("the battle's save did not finish loading");
+            _loadingSave = null;
             CoopRunner.SetSyncBlocker(false);
         }
     }
@@ -249,23 +287,22 @@ internal static class SessionSync
     private static bool _battlePending;
     private static float _battleDeadline;
     private static DateTime _battleMinWriteUtc;
-    private static string _battleCandidate;
-    private static long _battleCandidateSize = -1;
     private static float _battleLastCheck;
+    // True when OnHostMissionLaunch recorded the saves before this battle; a
+    // battle entered without it (resume / alone) falls back to the time window.
+    private static bool _snapshotTaken;
+    private static bool _battleSaveLate;
 
     // Host hold-fire: true from the moment the host ships the battle save until
     // the guest confirms it is fully loaded in ("ready"). While true the host is
-    // hard-blocked from acting (see Replication hold blocks). Failsafe-released
-    // so a lost ack can't strand the host.
+    // hard-blocked from acting (see Replication hold blocks).
+    //
+    // NO CLOCK RELEASES IT (user, 2026-10-30: latency must never decide).
+    // It ends when every CONNECTED client has reported in (a dropped client
+    // stops counting), when the battle ends, or when a person presses
+    // STOP WAITING in the co-op panel. A guest that cannot enter says so
+    // ("entryfail") instead of being waited out.
     internal static bool HostHoldFire;
-    private static float _holdFireSince;
-    // HOLD UNTIL THE GUEST IS ACTUALLY IN (user, 2026-09-26: "the pause menu for
-    // host [should] hold until guest is in game, it appears not"). It was 12 s
-    // while a guest takes ~40 s to load, so every battle opened with the host
-    // free to play alone for half a minute. "45s froze the host's squad" was a
-    // LOST ready, never a slow one -- the guest now re-sends "ready" until the
-    // host answers, so this is only a last resort for a guest that never loads.
-    private const float HoldFireFailsafe = 150f;
     private static float _guestReadySentAt;
 
     // HAS THE PARTNER CONFIRMED IT IS ACTUALLY IN THIS BATTLE?
@@ -319,14 +356,18 @@ internal static class SessionSync
     // only sends "ready" once it is genuinely settled and interactive, so the
     // host's hold-fire lasts until the guest can actually play.
     private static bool _guestReadyPending;
-    private static float _guestBattleStartAt;
-    private const float GuestReadySettle = 3f;
+    // Latched once the battle screen (UITactical) has been the active screen
+    // since this battle began -- the state the old 3 s settle stood in for.
+    private static bool _tacticalUiUp;
+    private static string _readyWaitScreen;
 
     // Guest-entering-battle: true from the moment the guest is told to launch a
     // battle until its battle actually starts. The multi-step entry (sync load ->
     // mission prep -> launch -> battle scene) has brief gaps between the per-phase
     // pauses; this keeps ONE persistent load screen up across all of them so the
-    // guest can't click out mid-entry (which desyncs). Failsafe-released.
+    // guest can't click out mid-entry (which desyncs). Ends when the battle
+    // starts, the link drops, or the entry fails (FailGuestEntry) -- never on a
+    // clock: a slow transfer is not a failed one.
     internal static bool GuestEnteringBattle;
 
     // THE GUEST IS LOADING OUR SAVE RIGHT NOW.
@@ -344,33 +385,63 @@ internal static class SessionSync
     // loading the save that mission is generated from. Same law as HostHoldFire,
     // one step earlier in the flow: an action we cannot tell our partner about
     // must not happen at all.
-    internal static bool SyncInFlight;
+    //
+    // PER SEAT, AND NO CLOCK. With 3-4 players the first client's "synced" used
+    // to clear the wait for everyone, and a 90 s failsafe let the host launch
+    // while a slow client was still loading. Now each client that was sent the
+    // save is waited on until it acks, reports failure ("syncfail"), or
+    // disconnects -- or a person presses STOP WAITING.
+    private static readonly System.Collections.Generic.HashSet<int> _syncPending = new();
     private static float SyncSentAt = -1f;
 
-    // FAILSAFE. If the ack never arrives -- a dropped packet, a partner that
-    // alt-F4'd -- the host must not be locked out of its own campaign forever.
-    // A player who cannot play is a worse outcome than one who started early.
-    private const float SyncHoldMax = 90f;
+    internal static bool SyncInFlight
+    {
+        get
+        {
+            if (_syncPending.Count == 0) return false;
+            if (CoopNet.Mode != CoopMode.Host || !CoopNet.Connected) { _syncPending.Clear(); return false; }
+            _syncPending.RemoveWhere(seat => !Peers.IsConnected(seat));
+            return _syncPending.Count > 0;
+        }
+    }
 
-    internal static bool GuestStillLoading =>
-        SyncInFlight && CoopNet.Connected && CoopNet.Mode == CoopMode.Host
-        && SyncSentAt > 0f && Time.realtimeSinceStartup - SyncSentAt < SyncHoldMax;
+    internal static bool GuestStillLoading => SyncInFlight;
 
     internal static float SyncWaitSeconds =>
         SyncSentAt > 0f ? Time.realtimeSinceStartup - SyncSentAt : 0f;
 
-    internal static void ClearSyncInFlight()
+    // Host: that seat finished (or failed) loading the sync save. True once
+    // nobody is left loading.
+    internal static bool ClearSyncInFlight(int seat)
     {
-        SyncInFlight = false;
+        _syncPending.Remove(seat);
+        if (SyncInFlight) return false;
         SyncSentAt = -1f;
+        return true;
+    }
+
+    // Host, from the co-op panel: a person decided not to wait any longer.
+    internal static bool Waiting => CoopNet.Mode == CoopMode.Host && (SyncInFlight || HostHoldFire);
+
+    internal static void StopWaiting()
+    {
+        if (CoopNet.Mode != CoopMode.Host) return;
+        Plugin.Logger.LogWarning($"[SESSION] STOP WAITING pressed (sync pending [{string.Join(",", _syncPending)}], hold-fire={HostHoldFire}) -- continuing without them");
+        _syncPending.Clear();
+        SyncSentAt = -1f;
+        if (HostHoldFire)
+        {
+            HostHoldFire = false;
+            PartnerBattleConfirmed = true;
+        }
+        if (!Replication.SyncPauseActive) CoopRunner.SetSyncBlocker(false);
+        CoopNet.Status = "Stopped waiting -- playing on";
     }
 
     // True once the guest has fully settled into the battle (its "ready" was
     // sent). From this moment the HOST drives the faction cycle: the guest's
     // local advances are held and every host change is replayed 1:1.
     internal static bool GuestBattleReady;
-    private static float _guestEnteringSince;
-    private const float GuestEnterFailsafe = 60f;
 
     internal static void OnPartnerJoined()
     {
@@ -438,10 +509,10 @@ internal static class SessionSync
                 return;
             }
             string path = SaveTransfer.PathFor(SyncSaveFile);
+            _pendingWriteMin = DateTime.UtcNow.AddSeconds(-2);   // filesystem timestamp slack
             SaveSystem.Save(SaveStateType.Manual, path, "Co-op sync");
             _pendingPath = path;
             _pendingSince = Time.realtimeSinceStartup;
-            _lastSize = -1;
             _lastCheck = 0f;
             CoopNet.Status = "Preparing sync save...";
             Plugin.Logger.LogInfo($"[SESSION] Sync save requested -> {path}");
@@ -461,12 +532,14 @@ internal static class SessionSync
         GuestEnteringBattle = false;
         CoopRunner.SetSyncBlocker(false);
         _guestReadyPending = true;
-        _guestBattleStartAt = Time.realtimeSinceStartup;
+        _tacticalUiUp = false;
+        _readyWaitScreen = null;
         // Arm the harness entry wait here too -- the guest reaches a battle by
         // this path, never through OnHostBattleStarted.
         PartnerBattleConfirmed = false;
         _harnessWaitSince = Time.realtimeSinceStartup;
         Plugin.Logger.LogInfo("[SESSION] Guest battle starting; entry load screen cleared, will confirm ready once settled");
+        LogVehicleLoadouts("battle start");
         GuestReload.OnGuestBattleStarted();
     }
 
@@ -483,17 +556,51 @@ internal static class SessionSync
         Plugin.Logger.LogInfo("[SESSION] Guest caught up with the host's battle -- sent ready");
     }
 
-    // Failsafe so a broken entry can't leave the guest stuck behind the load
-    // screen forever.
+    // The entry screen ends with the link: nobody is left to follow.
     private static void UpdateGuestEnteringBattle()
     {
-        if (!GuestEnteringBattle) return;
-        if (!CoopNet.Connected || Time.realtimeSinceStartup - _guestEnteringSince > GuestEnterFailsafe)
-        {
-            GuestEnteringBattle = false;
-            CoopRunner.SetSyncBlocker(false);
-            Plugin.Logger.LogWarning("[SESSION] Guest battle-entry load screen released by failsafe");
-        }
+        if (!GuestEnteringBattle || CoopNet.Connected) return;
+        GuestEnteringBattle = false;
+        AutoLaunchPending = false;
+        _launchScreen = null;
+        _queuedMissionIdx = -1;
+        CoopRunner.SetSyncBlocker(false);
+        Plugin.Logger.LogWarning("[SESSION] Disconnected while entering the battle -- entry cancelled");
+    }
+
+    // GUEST: this mission entry cannot complete. Clear every entry state, give
+    // the player their screen back, and TELL THE HOST, which holds fire until
+    // we are in -- before this it could only wait for a clock to run out.
+    internal static void FailGuestEntry(string why)
+    {
+        GuestEnteringBattle = false;
+        AutoLaunchPending = false;
+        _launchScreen = null;
+        _queuedMissionIdx = -1;
+        _queuedMissionSave = "";
+        _missionSaveLoaded = false;
+        CoopRunner.SetSyncBlocker(false);
+        CoopNet.Status = "Could not enter the mission: " + why;
+        if (CoopNet.Mode != CoopMode.Guest) { Plugin.Logger.LogError($"[SESSION] Mission relaunch FAILED: {why}"); return; }
+        Plugin.Logger.LogError($"[SESSION] Mission entry FAILED: {why} -- told the host");
+        CoopNet.Send(new CoopMsg { T = "entryfail", Data = why });
+    }
+
+    // HOST: a client could not enter (entryfail) or load the sync (syncfail).
+    // Stop waiting on THAT seat for the save; the battle hold stays up and the
+    // players are told, so a person decides (FIX DESYNC brings them in,
+    // STOP WAITING plays on without them).
+    internal static void HandlePartnerFailure(CoopMsg m, int seat, bool entry)
+    {
+        if (CoopNet.Mode != CoopMode.Host) return;
+        string who = Peers.NameOf(seat);
+        Plugin.Logger.LogError($"[SESSION] {who} (seat {seat}) {(entry ? "could not enter the battle" : "could not load the sync")}: {m.Data}");
+        if (ClearSyncInFlight(seat) && !HostHoldFire) CoopRunner.SetSyncBlocker(false);
+        string text = entry
+            ? $"{who} could not enter the battle ({m.Data}). Press FIX DESYNC to bring them in, or STOP WAITING in the co-op panel to play on."
+            : $"{who} could not load your game ({m.Data}). Press 'Sync partner to my game' to retry.";
+        CoopRunner.ShowVersionWarning(text, sticky: true);
+        CoopNet.Status = entry ? $"{who} could not enter the battle" : $"{who} could not load the sync";
     }
 
     // Send "ready" only when the guest is truly loaded in: in a battle, on the
@@ -523,8 +630,8 @@ internal static class SessionSync
             _guestReadyPending = false;
             return;
         }
+        if (!TacticalUiUp()) return;
         if (!tm.IsPlayerTurn()) return;
-        if (Time.realtimeSinceStartup - _guestBattleStartAt < GuestReadySettle) return;
         _guestReadyPending = false;
         // The battle state came from the host's save, so faction/round are
         // identical right now -- drop any queued advances from the load window
@@ -540,23 +647,51 @@ internal static class SessionSync
         Plugin.Logger.LogInfo("[SESSION] Guest fully settled in battle -- sent ready; host now drives the faction cycle");
     }
 
-    // Failsafe so a dropped "ready" can never strand the host: release the hold
-    // if the host leaves the battle, disconnects, or the wait runs long.
+    // Has the battle screen come up? Logged on the way in, with whether its
+    // bottom bars exist: a guest reported a battle with no squad bar and no
+    // END TURN button (Nexus 2026-10-30), and this line says which part is missing.
+    private static bool TacticalUiUp()
+    {
+        if (_tacticalUiUp) return true;
+        UIScreen active = null;
+        try { active = UIManager.Get()?.GetActiveScreen(); } catch { }
+        var ui = active?.TryCast<UITactical>();
+        if (ui == null)
+        {
+            string name = active?.GetType().Name ?? "(none)";
+            if (name != _readyWaitScreen)
+            {
+                _readyWaitScreen = name;
+                Plugin.Logger.LogInfo($"[SESSION] Waiting for the battle screen before sending ready (active: {name})");
+            }
+            return false;
+        }
+        _tacticalUiUp = true;
+        string bars;
+        try { bars = $"turn bar={(ui.GetUnitsTurnBar() != null ? "yes" : "MISSING")} skill bar={(ui.GetSkillBar() != null ? "yes" : "MISSING")} hud={(ui.GetHUD() != null ? "yes" : "MISSING")}"; }
+        catch (Exception e) { bars = "bars unreadable: " + e.GetType().Name; }
+        Plugin.Logger.LogInfo($"[SESSION] Battle screen is up ({bars})");
+        return true;
+    }
+
+    // The hold ends on STATE: the battle ended, nobody is connected, or every
+    // client still connected has reported in (one that dropped no longer
+    // counts -- its squads were lent to the host by Peers.NoteLost).
     private static void UpdateHostHoldFire()
     {
         if (!HostHoldFire) return;
-        bool release = !CoopNet.Connected
-            || TacticalManager.Get() == null
-            || Time.realtimeSinceStartup - _holdFireSince > HoldFireFailsafe;
-        if (release)
-        {
-            HostHoldFire = false;
-            // Not the overlay while a sync/rejoin pause still holds the board: r139
-            // 09:24:16 this cleared "M3 IS REJOINING" on the host mid catch-up, so
-            // the host looked unpaused for 25 s while the pause (correctly) held.
-            if (!Replication.SyncPauseActive) CoopRunner.SetSyncBlocker(false);
-            Plugin.Logger.LogWarning("[SESSION] Hold-fire released by failsafe (partner ready not received in time / battle ended)");
-        }
+        string why = !CoopNet.Connected ? "nobody is connected"
+            : TacticalManager.Get() == null ? "the battle ended"
+            : Peers.AllClientsReady ? "every connected player is in"
+            : null;
+        if (why == null) return;
+        HostHoldFire = false;
+        if (Peers.AllClientsReady) PartnerBattleConfirmed = true;
+        // Not the overlay while a sync/rejoin pause still holds the board: r139
+        // 09:24:16 this cleared "M3 IS REJOINING" on the host mid catch-up, so
+        // the host looked unpaused for 25 s while the pause (correctly) held.
+        if (!Replication.SyncPauseActive) CoopRunner.SetSyncBlocker(false);
+        Plugin.Logger.LogInfo($"[SESSION] Hold-fire released: {why}");
     }
 
     // #57: a host that is HOSTING but alone still records how this battle began
@@ -571,8 +706,7 @@ internal static class SessionSync
         _battlePending = true;
         _battleDeadline = Time.realtimeSinceStartup + 45f;
         _battleMinWriteUtc = DateTime.UtcNow.AddSeconds(-15);
-        _battleCandidate = null;
-        _battleCandidateSize = -1;
+        _battleSaveLate = false;
         _battleLastCheck = 0f;
         Plugin.Logger.LogInfo("[SESSION] Host battle started with nobody connected -- recording its entry so players can join mid-battle");
     }
@@ -585,15 +719,13 @@ internal static class SessionSync
         _battleDeadline = Time.realtimeSinceStartup + 45f;
         // the autosave may be written slightly before our battle-start hook fires
         _battleMinWriteUtc = DateTime.UtcNow.AddSeconds(-15);
-        _battleCandidate = null;
-        _battleCandidateSize = -1;
+        _battleSaveLate = false;
         _battleLastCheck = 0f;
         // Hold fire from the very moment the host's battle begins -- NOT only
         // after the autosave is found and shipped (that poll can take a couple of
         // seconds, during which the host was in the battle unheld and could act
         // before the guest even started loading).
         HostHoldFire = true;
-        _holdFireSince = Time.realtimeSinceStartup;
         PartnerBattleConfirmed = false;   // this battle's confirm must be earned
         _harnessWaitSince = Time.realtimeSinceStartup;
         // The host IS in the battle as of this moment, so tell the guest. Without
@@ -603,20 +735,24 @@ internal static class SessionSync
         CoopRunner.SetSyncBlocker(true, "PARTNER IS ENTERING THE BATTLE -- HOLD FIRE");
         CoopNet.Status = "Battle started -- HOLD FIRE until partner is in";
         Plugin.Logger.LogInfo("[SESSION] Host battle started; hold-fire engaged, shipping battle autosave to partner");
+        LogVehicleLoadouts("battle start");
     }
 
     private static void UpdateBattleSync()
     {
         if (!_battlePending) return;
         float now = Time.realtimeSinceStartup;
-        if (now > _battleDeadline)
+        // The battle ended before its save appeared: nothing left to ship.
+        if (TacticalManager.Get() == null) { _battlePending = false; _snapshotTaken = false; return; }
+        // LOCAL report only: our own game has not written the save yet. It
+        // never stops the wait -- a late save is still shipped when it lands.
+        if (now > _battleDeadline && !_battleSaveLate)
         {
-            _battlePending = false;
-            Plugin.Logger.LogError("[SESSION] No fresh battle save appeared within 45s -- partner NOT synced. Are autosaves enabled?");
-            CoopNet.Status = "Battle sync failed: no autosave found (see log)";
-            return;
+            _battleSaveLate = true;
+            Plugin.Logger.LogError("[SESSION] No battle save after 45 s -- still waiting. Are autosaves enabled?");
+            CoopNet.Status = "Battle sync waiting: no autosave yet (see log)";
         }
-        if (now - _battleLastCheck < 1f) return;
+        if (now - _battleLastCheck < 0.25f) return;   // a disk scan, not every frame
         _battleLastCheck = now;
 
         var dir = new DirectoryInfo(SaveTransfer.PathFor(""));
@@ -624,19 +760,15 @@ internal static class SessionSync
         FileInfo newest = null;
         foreach (var f in dir.GetFiles("*.save"))
         {
-            if (f.LastWriteTimeUtc < _battleMinWriteUtc) continue;
+            if (f.Name == SyncSaveFile) continue;
+            if (_snapshotTaken ? !ChangedSinceLaunch(f) : f.LastWriteTimeUtc < _battleMinWriteUtc) continue;
             if (newest == null || f.LastWriteTimeUtc > newest.LastWriteTimeUtc) newest = f;
         }
         if (newest == null) return;
-
-        if (newest.FullName != _battleCandidate || newest.Length != _battleCandidateSize || newest.Length == 0)
-        {
-            _battleCandidate = newest.FullName;
-            _battleCandidateSize = newest.Length;
-            return; // wait one more tick for the file to stabilize
-        }
+        if (!SaveFileComplete(newest.FullName)) return;   // still being written
 
         _battlePending = false;
+        _snapshotTaken = false;
         if (_entryOnly)
         {
             _entryOnly = false;
@@ -661,7 +793,7 @@ internal static class SessionSync
         if (_hostMissionIdx >= 0)
         {
             GuestReload.RecordBattleEntry(newest.Name, _hostMissionIdx, _hostMissionSeed, _hostDeploy);
-            CoopNet.Send(new CoopMsg { T = "startmission", MIdx = _hostMissionIdx, Seed = _hostMissionSeed, Data = _hostDeploy });
+            CoopNet.Send(new CoopMsg { T = "startmission", MIdx = _hostMissionIdx, Seed = _hostMissionSeed, Data = _hostDeploy, FName = newest.Name });
             Plugin.Logger.LogInfo($"[SESSION] Sent mission auto-start (idx={_hostMissionIdx}, seed={_hostMissionSeed}, deploy=[{_hostDeploy}])");
             _hostMissionIdx = -1;
         }
@@ -675,6 +807,8 @@ internal static class SessionSync
     {
         _hostMissionIdx = idx;
         _hostMissionSeed = seed;
+        SnapshotSaves();
+        _snapshotTaken = true;
         Plugin.Logger.LogInfo($"[SESSION] Host launching mission idx={idx} seed={seed}");
     }
 
@@ -925,11 +1059,16 @@ internal static class SessionSync
         _queuedMissionIdx = missionIdx;
         _queuedMissionSeed = seed;
         _queuedDeploy = deploy ?? "";
-        _queuedMissionAt = Time.realtimeSinceStartup;
+        _queuedMissionSave = "";      // local load below; gated on _awaitingLoadDone
+        _missionSaveLoaded = false;
         _queuedPrepIdx = -1;
         _hostWantsPrep = false;
-        _loadCooldownUntil = Time.realtimeSinceStartup + 4f;
         Plugin.Logger.LogInfo($"[SESSION] Host relaunch: loading '{saveName}', then mission idx={missionIdx} seed={seed}");
+        _awaitingLoadDone = true;
+        _relaunchLoad = true;
+        _preLoadStrategyPtr = StrategyState.Get()?.Pointer ?? IntPtr.Zero;
+        _preLoadProcessed = SaveLoadPatches.Completed;
+        _awaitingSince = Time.realtimeSinceStartup;
         RemoteLoadInProgress = true;   // lets the host load out of a battle
         try { SaveSystem.ExecLoad(state); }
         finally { RemoteLoadInProgress = false; }
@@ -940,15 +1079,22 @@ internal static class SessionSync
     {
         if (CoopNet.Mode != CoopMode.Guest) return;
         _queuedMissionIdx = m.MIdx;
-        _queuedMissionAt = Time.realtimeSinceStartup;
         _queuedMissionSeed = m.Seed;
         _queuedDeploy = m.Data ?? "";
+        _queuedMissionSave = IOPath.GetFileName(m.FName ?? "");
+        // Already loaded? Only if that exact load completed and nothing replaced it.
+        _missionSaveLoaded = false;
         _queuedPrepIdx = -1; // launching supersedes any pending planning mirror
         _hostWantsPrep = false; // we're launching, not mirroring prep anymore
         GuestEnteringBattle = true;   // one persistent load screen across the whole entry
-        _guestEnteringSince = Time.realtimeSinceStartup;
+        if (_queuedMissionSave.Length > 0 && _queuedMissionSave == _failedSave)
+        {
+            FailGuestEntry($"the battle's save '{_failedSave}' did not arrive intact");
+            return;
+        }
         CoopRunner.SetSyncBlocker(true, "ENTERING THE MISSION WITH HOST...");
-        Plugin.Logger.LogInfo($"[SESSION] Mission auto-start queued (idx={m.MIdx}); waiting for sync load to settle");
+        Plugin.Logger.LogInfo($"[SESSION] Mission auto-start queued (idx={m.MIdx}); waiting for its save "
+            + $"'{(_queuedMissionSave.Length > 0 ? _queuedMissionSave : "(not named by host)")}' to finish loading");
     }
 
     // The BattlePlan's DeployedEntity list drives where player units spawn.
@@ -1262,6 +1408,31 @@ internal static class SessionSync
         => StrategyState.Get()?.Roster?.GetHiredLeaders()
             ?.TryCast<Il2CppSystem.Collections.Generic.List<BaseUnitLeader>>();
 
+    // #88 (Nexus 2026-10-18): a guest commanding the main battle tank could not
+    // see or use the light weapon the host fitted, when a heavy weapon took the
+    // light slot on the other vehicles. Best guess: the slots fill in a different
+    // order on the guest. One line per vehicle, every machine, at battle start --
+    // the next report's two logs then show where the loadouts part.
+    internal static void LogVehicleLoadouts(string when)
+    {
+        try
+        {
+            var hired = GetHiredLeaders();
+            if (hired == null) return;
+            for (int i = 0; i < hired.Count; i++)
+            {
+                var items = hired[i]?.GetItems();
+                if (items == null || items.GetModularVehicle() == null) continue;
+                var sb = new System.Text.StringBuilder();
+                var all = items.GetAllItems();
+                int n = all?.Count ?? 0;
+                for (int k = 0; k < n; k++) sb.Append(' ').Append(k).Append('=').Append(all[k]?.GetID() ?? "empty");
+                Plugin.Logger.LogInfo($"[LOADOUT] {when} vehicle #{i}:{sb}");
+            }
+        }
+        catch (Exception e) { Plugin.Logger.LogWarning($"[LOADOUT] could not read vehicle loadouts: {e.GetType().Name}"); }
+    }
+
     internal static void OnHostPlanUnitChanged(BaseUnitLeader leader, bool added)
     {
         if (leader == null || TacticalManager.Get() != null || StrategyState.Get() == null) return;
@@ -1413,28 +1584,14 @@ internal static class SessionSync
     private static void UpdateMissionStart()
     {
         if (_queuedMissionIdx < 0) return;
-        if (_queuedLoad != null) return;
-        // The save we are entering from must be fully processed first (#65).
-        if (_awaitingLoadDone) return;
-
-        // A QUEUED MISSION MUST NOT BE STARVED BY INCOMING SAVES.
-        //
-        // Every save load pushes _loadCooldownUntil 20 seconds further out, and
-        // the host sends the battle autosave AFTER the mission auto-start -- so
-        // each arriving file deferred the launch again and the guest sat on the
-        // strategy layer while the host played the battle alone. Seen in the
-        // harness: "Mission auto-start queued (idx=4); waiting for sync load to
-        // settle", then two more loads, then nothing, while the host's own trace
-        // read mine=0 theirs=0 for the whole mission.
-        //
-        // The cooldown is there to let a load settle, which is worth a short
-        // wait -- but not an unbounded one. Past the deadline the launch goes
-        // ahead regardless.
-        bool starved = Time.realtimeSinceStartup - _queuedMissionAt > QueuedMissionDeadline;
-        if (Time.realtimeSinceStartup < _loadCooldownUntil && !starved) return;
-        if (starved && Time.realtimeSinceStartup < _loadCooldownUntil)
-            Plugin.Logger.LogWarning("[SESSION] Mission auto-start has waited "
-                + $"{(int)(Time.realtimeSinceStartup - _queuedMissionAt)}s behind repeated save loads -- launching anyway");
+        // STATE, NOT TIME: no load queued, none in progress (#65: the save we
+        // enter from must be fully processed), and -- when the host named it --
+        // the mission's own save is the one that finished loading.
+        if (_queuedLoad != null || _awaitingLoadDone) return;
+        if (_queuedMissionSave.Length > 0 && !_missionSaveLoaded) return;
+        // Without the game's load-finished hook the old settle window is the
+        // only signal there is (UpdateLoadQueue sets it only in that case).
+        if (!SaveLoadPatches.Bound && Time.realtimeSinceStartup < _loadCooldownUntil) return;
         var strategy = StrategyState.Get();
 
         if (strategy == null || TacticalManager.Get() != null) return;
@@ -1464,8 +1621,7 @@ internal static class SessionSync
             if (target == null)
             {
                 Plugin.Logger.LogError($"[SESSION] Cannot find mission idx={idx} in current operation -- auto-start failed");
-                CoopNet.Status = "Mission auto-start failed (see log)";
-                CoopRunner.SetSyncBlocker(false);
+                FailGuestEntry($"mission {idx} is not in our campaign");
                 return;
             }
             // THE PREP SCENE MUST BE UP BEFORE PREP OPENS (#65, crash rejoin).
@@ -1488,18 +1644,14 @@ internal static class SessionSync
             CoopNet.Status = "Entering the mission with host...";
             if (!MissionPrepUIScreen.TryOpen(target))
             {
-                AutoLaunchPending = false;
                 Plugin.Logger.LogError("[SESSION] MissionPrepUIScreen.TryOpen returned false -- auto-launch failed");
-                CoopNet.Status = "Mission auto-start failed (see log)";
-                CoopRunner.SetSyncBlocker(false);
+                FailGuestEntry("the mission's planning screen would not open");
             }
         }
         catch (Exception e)
         {
-            AutoLaunchPending = false;
             Plugin.Logger.LogError($"[SESSION] Mission auto-start failed: {e}");
-            CoopNet.Status = "Mission auto-start failed (see log)";
-            CoopRunner.SetSyncBlocker(false);
+            FailGuestEntry("mission start threw " + e.GetType().Name);
         }
     }
 
@@ -1563,13 +1715,12 @@ internal static class SessionSync
     {
         if (!AutoLaunchPending) return;
         float now = Time.realtimeSinceStartup;
+        // LOCAL watchdog: our own map preview never finished (#65 family). It
+        // only reports the failure -- the host is told, nothing goes ahead.
         if (now > _autoLaunchDeadline)
         {
-            AutoLaunchPending = false;
-            _launchScreen = null;
             Plugin.Logger.LogError("[SESSION] Auto-launch timed out waiting for mission prep");
-            CoopNet.Status = "Mission auto-start timed out (see log)";
-            CoopRunner.SetSyncBlocker(false);
+            FailGuestEntry("the mission map preview never finished generating");
             return;
         }
         if (_launchScreen == null) return;
@@ -1613,8 +1764,7 @@ internal static class SessionSync
         catch (Exception e)
         {
             Plugin.Logger.LogError($"[SESSION] LaunchMission failed: {e}");
-            CoopNet.Status = "Mission auto-start failed (see log)";
-            CoopRunner.SetSyncBlocker(false);
+            FailGuestEntry("starting the mission threw " + e.GetType().Name);
         }
     }
 
@@ -1657,6 +1807,12 @@ internal static class SessionSync
         // Battle over (or never in one): release the host-driven cycle hold.
         if (GuestBattleReady && TacticalManager.Get() == null)
             GuestBattleReady = false;
+        // The exit is over once the results screen is up (or the battle is gone).
+        // On a guest the battle stays loaded behind its results screen until the
+        // next load replaces it (r167: TRACE kept logging round 4 for minutes), so
+        // "battle gone" alone never came and the post-battle sync waited forever.
+        if (LeavingBattle && (TacticalManager.Get() == null || ResultScreenOpen))
+            LeavingBattle = false;
 
         UpdateCampaignWatch();
         UpdateBattleSync();
@@ -1673,6 +1829,7 @@ internal static class SessionSync
         UpdatePrepWatchdog();
         if (_pendingPath == null) return;
         float now = Time.realtimeSinceStartup;
+        // LOCAL watchdog: our own game never wrote the file we asked for.
         if (now - _pendingSince > 20f)
         {
             Plugin.Logger.LogError("[SESSION] Sync save never materialized -- aborting");
@@ -1680,16 +1837,13 @@ internal static class SessionSync
             _pendingPath = null;
             return;
         }
-        if (now - _lastCheck < 0.5f) return;
+        if (now - _lastCheck < 0.25f) return;
         _lastCheck = now;
 
         var fi = new FileInfo(_pendingPath);
-        if (!fi.Exists) return;
-        if (fi.Length == 0 || fi.Length != _lastSize)
-        {
-            _lastSize = fi.Length;
-            return;
-        }
+        if (!fi.Exists || fi.LastWriteTimeUtc < _pendingWriteMin) return;   // not this request's write yet
+        if (!SaveFileComplete(_pendingPath)) return;                        // still being written
+        fi.Refresh();
 
         string path = _pendingPath;
         _pendingPath = null;
@@ -1698,8 +1852,9 @@ internal static class SessionSync
         if (File.Exists(jpg)) SaveTransfer.SendFile(jpg);
         CoopNet.Send(new CoopMsg { T = "loadreq", FName = IOPath.GetFileName(path) });
         CoopNet.Status = "Sync sent -- partner is loading your game";
-        CoopRunner.SetSyncBlocker(true); // lifted by the guest's "synced" ack
-        SyncInFlight = true;
+        CoopRunner.SetSyncBlocker(true); // lifted by the guests' "synced" acks
+        _syncPending.Clear();
+        foreach (var seat in HostLinks.Seats()) _syncPending.Add(seat);
         SyncSentAt = Time.realtimeSinceStartup;
         Plugin.Logger.LogInfo($"[SESSION] Sync save sent ({fi.Length} bytes) with load request");
     }
@@ -1718,8 +1873,11 @@ internal static class SessionSync
         {
             Plugin.Logger.LogError($"[SESSION] Load requested for '{name}' but that transfer did not complete cleanly");
             CoopNet.Status = "Sync aborted: transfer incomplete";
+            _failedSave = name;
+            CoopNet.Send(new CoopMsg { T = "syncfail", Data = "the save did not arrive intact" });
             return;
         }
+        if (_failedSave == name) _failedSave = null;   // a fresh, complete copy
         bool wasEmpty = _queuedLoad == null;
         if (!wasEmpty)
             Plugin.Logger.LogInfo($"[SESSION] Load of '{_queuedLoad}' superseded by newer '{name}'");
@@ -1763,12 +1921,14 @@ internal static class SessionSync
         // the game), so what gets released is the BLOCKER, not the wait: the
         // player gets their game back, the load still happens the moment the
         // screen closes.
-        if (_loadQueuedAt > 0 && Time.realtimeSinceStartup - _loadQueuedAt > 25f && !_loadBlockerReleased)
+        // State, not 25 s: the moment the wait is the results screen, the
+        // player gets their screen back.
+        if (ResultScreenOpen && !_loadBlockerReleased)
         {
             _loadBlockerReleased = true;
             CoopRunner.SetSyncBlocker(false);
-            CoopNet.Status = "Waiting for the host to leave the results screen -- you can keep playing";
-            Plugin.Logger.LogWarning("[SESSION] Sync load still waiting after 25s -- released the on-screen blocker so the game is not locked");
+            CoopNet.Status = "Waiting for the results screen to close -- you can keep playing";
+            Plugin.Logger.LogInfo("[SESSION] Sync load waits for the results screen -- released the on-screen blocker so the game is not locked");
         }
 
         // The results screen is a genuine transition -- ExecLoad into it hangs
@@ -1809,15 +1969,16 @@ internal static class SessionSync
             return;
         }
         _resultCloseTried = false;
-        // Normally wait until we've left our own battle before loading. But if
-        // the host loaded an earlier (strategy) save while we're still in a
-        // battle it has abandoned, our battle will never resolve in sync --
-        // force the load after a grace period so the guest isn't stuck forever.
-        // A reload is the host deliberately pulling us out of this battle -- no grace.
-        if (TacticalManager.Get() != null && Time.realtimeSinceStartup - _loadQueuedAt < 12f
-            && !GuestReload.GuestCatchingUp) return;
+        // STILL IN A BATTLE. If we are following the host out of it (its
+        // mission ended and we called Finish), that exit is a scene change in
+        // progress -- a load on top of it dumps the game to the main menu -- so
+        // wait for it to finish. Otherwise the host has abandoned this battle
+        // (it is on the strategy layer or in a new one) and nothing will end
+        // ours: load now. This used to be a 12 s grace either way, which a slow
+        // exit outlasted.
+        if (TacticalManager.Get() != null && LeavingBattle && !GuestReload.GuestCatchingUp) return;
         if (TacticalManager.Get() != null)
-            Plugin.Logger.LogInfo("[SESSION] Forcing sync load out of a battle the host has left");
+            Plugin.Logger.LogInfo("[SESSION] Loading out of a battle the host has left");
 
         string name = _queuedLoad;
         string path = SaveTransfer.PathFor(name);
@@ -1845,9 +2006,12 @@ internal static class SessionSync
             }
             _queuedLoad = null;
             _loadParseRetries = 0;
+            _failedSave = name;
             Plugin.Logger.LogError($"[SESSION] Could not parse synced save at '{path}' after retries");
             CoopNet.Status = "Sync load failed -- ask host to re-sync";
-            CoopRunner.SetSyncBlocker(false);
+            CoopNet.Send(new CoopMsg { T = "syncfail", Data = "the save could not be read" });
+            if (name == _queuedMissionSave && _queuedMissionIdx >= 0) FailGuestEntry("the battle's save could not be read");
+            else CoopRunner.SetSyncBlocker(false);
             return;
         }
         _loadParseRetries = 0;
@@ -1871,6 +2035,7 @@ internal static class SessionSync
         CoopNet.Status = "Loading host's game...";
         CoopRunner.SetSyncBlocker(true, "LOADING HOST'S GAME...");
         _awaitingLoadDone = true;
+        _loadingSave = name;
         _preLoadStrategyPtr = StrategyState.Get()?.Pointer ?? IntPtr.Zero;
         _preLoadProcessed = SaveLoadPatches.Completed;
         _awaitingSince = Time.realtimeSinceStartup;
@@ -1880,6 +2045,49 @@ internal static class SessionSync
     }
 
     private static int _loadParseRetries;
+
+    // GUEST: set when we follow the host out of a battle (Replication's
+    // mission-end handler calls Finish(Leave)); the step from the battle to the
+    // results screen is a scene change no load may overlap. Cleared once the
+    // results screen is up or the battle is gone (Update).
+    internal static bool LeavingBattle;
+
+    // HOST: is this save file completely written? Another writer still holding
+    // it makes the exclusive open fail; a complete file also parses. Replaces
+    // "its size did not change for one poll", which a slow disk could pass
+    // half-written.
+    private static bool SaveFileComplete(string path)
+    {
+        try
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+                if (fs.Length == 0) return false;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        try { return SaveSystem.TryGetSaveState(path, out var st) && st != null; }
+        catch { return false; }
+    }
+
+    // HOST: the save files as they were when the mission launched. The battle
+    // autosave is the one that is new or rewritten since -- not "anything
+    // written within 15 s of now", which could pick up an older save.
+    private static readonly System.Collections.Generic.Dictionary<string, DateTime> _savesAtLaunch = new(StringComparer.OrdinalIgnoreCase);
+
+    private static void SnapshotSaves()
+    {
+        _savesAtLaunch.Clear();
+        try
+        {
+            var dir = new DirectoryInfo(SaveTransfer.PathFor(""));
+            if (!dir.Exists) return;
+            foreach (var f in dir.GetFiles("*.save")) _savesAtLaunch[f.Name] = f.LastWriteTimeUtc;
+        }
+        catch (Exception e) { Plugin.Logger.LogWarning($"[SESSION] Could not list saves at launch: {e.Message}"); }
+    }
+
+    private static bool ChangedSinceLaunch(FileInfo f) =>
+        !_savesAtLaunch.TryGetValue(f.Name, out var t) || f.LastWriteTimeUtc > t;
 }
 
 // MAP GENERATION DETERMINISM.

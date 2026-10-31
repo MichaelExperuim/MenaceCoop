@@ -1,4 +1,4 @@
-# MenaceCoop â€” Changelog
+﻿# MenaceCoop â€” Changelog
 
 Private 2-player co-op mod for **MENACE** (Overhype Studios). MelonLoader IL2CPP mod from
 v4.0.0 on; BepInEx 6 up to and including v3.14.0. Architecture: **host authority** â€” the host owns the campaign/strategy
@@ -7,6 +7,41 @@ actions replicate as orders over TCP or Steam P2P; the guest re-syncs from the
 host's save at key moments.
 
 Newest first. Dates are development dates.
+
+---
+
+## v5.3.1 - unreleased - mission start over real connections
+
+Requires MENACE v0.7.17. Everyone in the session must update.
+
+### Fixed
+
+- A joining player could be thrown out of the game when a mission started, or enter
+  it with no bottom panel (no squad buttons, no END TURN), over a real internet
+  connection. Their game started the mission before the host's battle save had
+  finished loading. Starting a mission now waits for that exact save to load, however
+  slow the connection, and never goes ahead on a timer.
+- With 3 or 4 players, the first player to finish loading the host's campaign let the
+  host start the mission while the others were still loading. The host now waits for
+  every player.
+- Perk counterattacks now play on every player's screen, not just the owner's.
+- A player whose game cannot enter the mission now tells the host, instead of the
+  host waiting on them.
+
+### Added
+
+- **STOP WAITING FOR PLAYERS** in the co-op panel (host): appears only while the host
+  is waiting for players to load, for a player whose game will never finish.
+- Each player's log now records the vehicle loadouts at battle start, to help with
+  reports of a weapon missing for one player.
+
+### Changed
+
+- The planning screen note: only the host plans the mission (squad sizes, loadouts,
+  deployment); everyone else sees those changes live. Now stated in the readme.
+- Developer documentation and portable test tools are in the repository
+  (`DeveloperDocs/`, `tools/`), including a simulated slow connection for testing on
+  one PC (dev builds only).
 
 ---
 

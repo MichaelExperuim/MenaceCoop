@@ -2412,6 +2412,11 @@ internal static class Replication
     // an AI one at the gate, where the actor is not always to hand.
     internal static bool IsPlayerOrder(UsageParameter p) => p == UsageParameter.Default;
 
+    // #90: a use the ENGINE made itself in reaction to something (a counterattack
+    // on being shot). Each machine fires its own copy, so it is never relayed as
+    // an order and never held; its damage follows the shooter's owner like any hit.
+    internal static bool IsEngineReaction(UsageParameter p) => (p & UsageParameter.NoApConsumed) != 0;
+
     // Applying a remote AP figure must never leave a unit unable to act. A unit
     // that still has its turn and is reported at 0 AP is almost certainly a
     // stale or mis-attributed figure, and applying it strands that unit for the
@@ -2572,6 +2577,7 @@ internal static class Replication
             ApplyingRemote = true;
             try { tm.Finish(TacticalFinishReason.Leave); }
             finally { ApplyingRemote = false; }
+            SessionSync.LeavingBattle = true;   // the exit is under way: no load may land on it
 
             Plugin.Logger.LogInfo("[SESSION] Left the battle to follow the host to the result screen");
         }
@@ -3496,10 +3502,23 @@ internal static class Replication
                 break;
 
             case "synced":
-                CoopRunner.SetSyncBlocker(false);
-                SessionSync.ClearSyncInFlight();
-                CoopNet.Status = "Partner synced";
-                Plugin.Logger.LogInfo("[SESSION] Partner confirmed sync complete");
+                if (CoopNet.Mode != CoopMode.Host) break;
+                Plugin.Logger.LogInfo($"[SESSION] {Peers.NameOf(SenderSeat(m))} confirmed sync complete");
+                // per seat: the blocker lifts only once NOBODY is still loading
+                if (SessionSync.ClearSyncInFlight(SenderSeat(m)))
+                {
+                    if (!SessionSync.HostHoldFire) CoopRunner.SetSyncBlocker(false);
+                    CoopNet.Status = "Partner synced";
+                }
+                else CoopNet.Status = "Waiting for the other players to finish loading";
+                break;
+
+            case "syncfail":
+                SessionSync.HandlePartnerFailure(m, SenderSeat(m), entry: false);
+                break;
+
+            case "entryfail":
+                SessionSync.HandlePartnerFailure(m, SenderSeat(m), entry: true);
                 break;
 
             case "seed":
@@ -4454,6 +4473,9 @@ internal static class ReplicationPatches
         // partner" and let preview frames touch order-path state they have no
         // business touching.
         if (IsPreview(_parameters)) return;
+        // #90: every machine runs its own copy of an engine reaction (counterattack)
+        // -- relaying it too would play it twice on the receiver.
+        if (Replication.IsEngineReaction(_parameters)) return;
         if (!Replication.ShouldBroadcastOrder()) return;
         if (Replication.IsPlayerOrder(_parameters) && Replication.AiFireInFlight()) return;   // mirrors LockBlockSkill
         // DO NOT FILTER PLAYER SKILLS BY USAGE PARAMETER.
@@ -5296,8 +5318,8 @@ internal static class ReplicationPatches
         // generated from that save, so starting before it lands is starting a
         // battle the guest cannot reproduce.
         //
-        // GuestStillLoading carries its own 90s failsafe, so a lost ack cannot
-        // lock the host out of its campaign.
+        // No clock lifts this (user, 2026-10-30): it ends when every client acks,
+        // reports failure, or drops -- or a person presses STOP WAITING.
         if (SessionSync.GuestStillLoading)
         {
             CoopNet.Status = $"Wait -- your partner is still loading your game ({SessionSync.SyncWaitSeconds:F0}s)";
@@ -5579,6 +5601,13 @@ internal static class ReplicationPatches
     private static bool LockBlockSkill(Skill __instance, UsageParameter _parameters)
     {
         if (IsPreview(_parameters)) return true;                 // aiming is always allowed
+        // #90: AN ENGINE REACTION IS NOT AN ORDER. A counterattack fires when the
+        // enemy shot LANDS, flagged NoApConsumed, on every machine at once (r165
+        // 17:12:44, host and guest within 14 ms). It is by definition a player
+        // unit firing while enemy fire resolves -- exactly what the hold below
+        // refuses -- so the perk attack never played on the screens that held it.
+        // The hold exists to stop a player's CLICK; let the engine's own reaction run.
+        if (Replication.IsEngineReaction(_parameters)) return true;
         if (Replication.ActionBlockedByLock()) return false;
 
         // Decide "is this a player order" from the ACTOR, matching the broadcast

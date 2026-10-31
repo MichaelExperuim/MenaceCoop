@@ -21,6 +21,7 @@ internal static class Relay
         "catchreq", "reqreload",                    // guest reload protocol
         "reqsync", "reqhard", "hash", "hashrows", "hashok", "spdone",   // desync checks are host <-> each client
         "ready", "prepready", "synced", "trust",    // per-client readiness
+        "syncfail", "entryfail",                    // per-client failure reports
         "roster", "terrain",                        // per-client manifest checks against the host's
         "dbgreq", "sdiereq", "ireq", "dposreq",                // asks the host to do something
         "fmeta", "fchunk", "fdone",                 // file transfers are point to point

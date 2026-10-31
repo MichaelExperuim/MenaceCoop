@@ -467,7 +467,7 @@ internal static class GuestReload
         if (target > 0) Ownership.AssignForLateJoin();   // battle started alone: give the joiner squads
         string slots = Ownership.LastGuestSlots;
         if (slots != null) Out(new CoopMsg { T = "own", Data = slots, Seats = Ownership.LastSeats });
-        Out(new CoopMsg { T = "startmission", MIdx = _missionIdx, Seed = _seed, Data = _deploy });
+        Out(new CoopMsg { T = "startmission", MIdx = _missionIdx, Seed = _seed, Data = _deploy, FName = _saveName });
     }
 
     private static void HandleCatchRequest()

@@ -1,4 +1,4 @@
-# MenaceCoop v5.3.0 (MelonLoader)
+﻿# MenaceCoop v5.3.0 (MelonLoader)
 
 Co-op for 2 to 4 players in MENACE (requires game v0.7.17 or later). One player hosts,
 the others join; the squads are split between you and you fight each mission together.
@@ -131,6 +131,9 @@ save automatically.
   next player**. Keep clicking to cycle through the players. Everyone else sees the
   choice live. A player left with no squad is shown as SPECTATOR. The split is fixed
   when the battle starts.
+- **Only the host plans the mission.** Squad sizes, loadouts and deployment are set on
+  the host's planning screen; everyone else sees those changes live but cannot make
+  them. Tell the host what you want in your squads.
 - **HOST / GUEST labels** above units show whose is whose (toggle in the co-op panel).
 - **Your partner's cursor** shows on your screen; their planned move line can be shown
   too. Each can be turned off in the `[MenaceCoop_UI]` section.
@@ -173,8 +176,6 @@ save automatically.
   airdrops): the rebuilt battle does not include it. Rare.
 - Small corrections to an enemy's facing, stance or morale are logged a few times per
   round. They are not visible in play.
-- Perk-triggered attacks (counterattacks, some suppression bursts) play **no
-  animation** on the other players' screens. The damage is applied for everyone.
 - Most testing has been two copies of the game on one machine. Play over real network
   latency has had less coverage; reports are welcome.
 
