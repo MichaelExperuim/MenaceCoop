@@ -18,6 +18,7 @@ and get a 2-player test running before touching code.
 | 09 | [Decisions log](09-DECISIONS.md) | The major design decisions per version, in one table. Full reasoning and evidence are in [CHANGELOG.md](../CHANGELOG.md). | To understand why the mod is shaped as it is. |
 | 10 | [N-player design](10-N-PLAYER-DESIGN.md) | The original design note for going from 2 to 4 players (seats, authority inversion, star topology), written before v5.0. Implemented; kept for its reasoning. Mentions `DESIGN-REVIEW.md` and `V5-PLAN.md`, which are internal notes not in the repo. | When working on seats, ownership or the network topology. |
 | 11 | [Update resilience](11-UPDATE-RESILIENCE.md) | How the mod should behave when the game updates under it. | After a MENACE update. |
+| 12 | [Contributing](12-CONTRIBUTING.md) | How outside developers contribute: fork, feature branch, pull request; the maintainer reviews and approves every change; the rules on `main`. | Before opening a pull request. |
 
 ## Scripts that go with these docs
 

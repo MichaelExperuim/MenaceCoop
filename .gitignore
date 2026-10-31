@@ -26,6 +26,7 @@
 !/MenaceCoopMelon/
 !/Shared/
 !/.vscode/
+!/.github/
 
 # Build output
 bin/
